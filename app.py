@@ -127,9 +127,12 @@ class AudioApp:
         sample_rate, processed_data = audio_utils.process_audio(self.filepath, eq_settings, compression_ratio)
         if processed_data is not None:
             pygame.mixer.quit()
-            pygame.mixer.init(frequency=sample_rate)
             # --- THIS IS THE FIX ---
-            # Changed pygame.s.Sound to pygame.mixer.Sound and added the 'buffer' argument
+            # Be explicit about the audio format:
+            # frequency = sample_rate (e.g., 44100)
+            # size = -16 (16-bit audio, the standard for WAV)
+            # channels = 1 (mono audio)
+            pygame.mixer.init(frequency=sample_rate, size=-16, channels=1)
             self.preview_sound = pygame.mixer.Sound(buffer=processed_data)
             self.preview_sound.play(loops=-1)
             self.is_previewing = True
