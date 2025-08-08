@@ -1,67 +1,15 @@
 import numpy as np
 from scipy.io import wavfile
-# Using the standard, most common import style for PySimpleGUI
-import PySimpleGUI as sg
-
-
-def select_file():
-    """Opens a file dialog to select a .wav file using the modern PySimpleGUI API."""
-    # Define the layout for our small pop-up window
-    layout = [
-        [sg.Text("Please select an audio file")],
-        # The Input element will show the path, FileBrowse opens the dialog
-        [sg.Input(key='-FILE-'), sg.FileBrowse(file_types=(("WAV Files", "*.wav"),))],
-        [sg.OK(), sg.Cancel()]
-    ]
-
-    # Create the window
-    window = sg.Window('Select WAV File', layout)
-
-    filepath = None
-    # This is the event loop for our small pop-up window
-    while True:
-        event, values = window.read()
-        # If user closes window or clicks Cancel
-        if event == sg.WIN_CLOSED or event == 'Cancel':
-            break
-        # If user clicks OK, we get the filepath from the Input element
-        if event == 'OK':
-            filepath = values['-FILE-']
-            break
-
-    window.close()
-    return filepath
-
-
-def save_file():
-    """Opens a file dialog to save a .wav file using the modern PySimpleGUI API."""
-    layout = [
-        [sg.Text("Save processed audio as...")],
-        [sg.Input(key='-FILE-'), sg.FileSaveAs(file_types=(("WAV Files", "*.wav"),), default_extension=".wav")],
-        [sg.OK(), sg.Cancel()]
-    ]
-
-    window = sg.Window('Save As', layout)
-
-    filepath = None
-    while True:
-        event, values = window.read()
-        if event == sg.WIN_CLOSED or event == 'Cancel':
-            break
-        if event == 'OK':
-            filepath = values['-FILE-']
-            break
-
-    window.close()
-    return filepath
+import os
 
 
 def process_audio(filepath, eq_settings, compression_ratio):
     """
     Loads a .wav file, applies equalization and compression, and returns
-    the new audio data. This function remains unchanged.
+    the new audio data and the original sample rate.
     """
-    if not filepath:
+    if not filepath or not os.path.exists(filepath):
+        print(f"Error: File not found at {filepath}")
         return None, None
 
     try:
