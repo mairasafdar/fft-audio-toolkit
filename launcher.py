@@ -19,18 +19,20 @@ def main():
     layout = [
         [sg.Text("Please select a .wav audio file to edit.")],
         [sg.Input(key='-FILE-'), sg.FileBrowse(file_types=(("WAV Files", "*.wav"),))],
-        [sg.OK(), sg.Cancel()]
+        # The FileBrowse button is what actually opens the native macOS file picker.
+        [sg.OK(), sg.Cancel()] #Ok and Cancel buttons
     ]
 
-    window = sg.Window('WaveShaper Launcher', layout)
+    window = sg.Window('AudioToolkit Launcher', layout) #Window for the layout
 
     filepath = None
     while True:
+        #Event loop, waits for user to do something
         event, values = window.read()
         if event == sg.WIN_CLOSED or event == 'Cancel':
-            break
+            break # If you close the window or press Cancel, loop breaks
         if event == 'OK':
-            filepath = values['-FILE-']
+            filepath = values['-FILE-'] #if you press OK, the filepath = input
             break
 
     window.close()
@@ -42,9 +44,9 @@ def main():
         # We find the path to the main.py script relative to this launcher
         main_app_path = os.path.join(os.path.dirname(__file__), 'main.py')
 
-        # We use subprocess.run to execute the command: `python3 main.py /path/to/file.wav`
+        # We use subprocess.run to execute the command (same as you manually typing): `python3 main.py /path/to/file.wav`
         try:
-            # sys.executable ensures we use the same Python interpreter
+            # sys.executable ensures we use the same Python interpreter as the launcher
             subprocess.run([sys.executable, main_app_path, filepath], check=True)
         except subprocess.CalledProcessError as e:
             print(f"Error launching main application: {e}")
