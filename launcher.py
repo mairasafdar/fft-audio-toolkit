@@ -12,7 +12,7 @@ def main():
     Uses PySimpleGUI to get a file path and then launches the main app.
     """
     # Set a theme for the file dialog window
-    sg.theme('DarkBlue3')
+    sg.theme('DarkPurple1')
 
     # Define the layout for our file dialog window.
     # This is more robust than the simple popup.

@@ -1,206 +1,408 @@
-import pygame
+import sys
 import os
-import audio_utils
-from scipy.io import wavfile
 import numpy as np
+from scipy.io import wavfile
 import tempfile
+import time
 
-# --- Constants ---
-# Increased width for the new two-column layout
-SCREEN_WIDTH, SCREEN_HEIGHT = 1024, 700
-FPS = 60
-COLOR_TEXT = (230, 230, 230)
-COLOR_BG_TEXT = (50, 50, 50)
-COLOR_PROGRESS_BG = (70, 70, 70)
-COLOR_PROGRESS_FG = (50, 150, 255)
-COLOR_WAVEFORM_BASE = (100, 100, 100)
-COLOR_WAVEFORM_EQ = (50, 150, 255)
+# Import all the necessary components from PyQt6
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QSlider, QLabel, QFileDialog, QGraphicsView, QGraphicsScene,
+                             QGraphicsPathItem, QPushButton, QStackedWidget, QFrame)
+from PyQt6.QtGui import QPen, QColor, QPainterPath, QFont
+from PyQt6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QRect, QSize, QTimer)
 
-# Define a clear starting point for the right-side UI column
-RIGHT_COLUMN_X = 600
+# We need to import pygame here to initialize it
+import pygame
+import audio_utils
+
+# --- New Professional Stylesheet ---
+MODERN_STYLESHEET = """
+    /* Main Window Styling */
+    QMainWindow, QWidget {
+        background-color: #1e1e1e; /* Off-black for a professional look */
+        color: #f0f0f0; /* Off-white for text */
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    /* Title Labels */
+    QLabel#TitleLabel {
+        font-size: 28px;
+        font-weight: bold;
+        color: #f0f0f0;
+    }
+
+    /* Standard Labels */
+    QLabel {
+        font-size: 16px;
+    }
+
+    /* Button Styling */
+    QPushButton {
+        background-color: #333333;
+        border: 1px solid #555555;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #444444;
+        border: 1px solid #777777;
+    }
+    QPushButton#AccentButton {
+        background-color: #ff007f; /* Vibrant Magenta/Pink */
+        color: white;
+    }
+    QPushButton#AccentButton:hover {
+        background-color: #cc0066;
+    }
+
+    /* Slider Styling */
+    QSlider::groove:horizontal {
+        border: 1px solid #333333;
+        height: 4px;
+        background: #444444;
+        margin: 2px 0;
+        border-radius: 2px;
+    }
+    QSlider::handle:horizontal {
+        background: #ff007f; /* Vibrant Magenta/Pink */
+        border: 2px solid #1e1e1e;
+        width: 18px;
+        margin: -8px 0; 
+        border-radius: 9px;
+    }
+
+    /* Waveform Viewer Styling */
+    QGraphicsView {
+        border-radius: 8px;
+        background-color: #2b2b2b;
+        border: 1px solid #444444;
+    }
+"""
 
 
-def get_asset_path(filename):
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, 'assets', filename)
+class AudioApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
 
-
-class AudioApp:
-    def __init__(self, input_filepath):
         pygame.init()
-        pygame.font.init()
         pygame.mixer.init()
 
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("WaveShaper: Audio Editor")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Arial", 24)
-        self.small_font = pygame.font.SysFont("Arial", 18)
-        self.title_font = pygame.font.SysFont("Arial", 32, bold=True)
+        self.setWindowTitle("WaveShaper")
+        self.setGeometry(100, 100, 1024, 700)
+        self.setStyleSheet(MODERN_STYLESHEET)
 
-        self.app_state = "editor_eq"
-        self.running = True
-
-        self.filepath = input_filepath
-        self.sample_rate, self.original_audio_data = audio_utils.load_audio(self.filepath)
+        # --- App State ---
+        self.filepath = None
+        self.original_audio_data = None
         self.eq_audio_data = None
-        self.original_filesize_kb = os.path.getsize(self.filepath) / 1024 if self.filepath else 0
+        self.sample_rate = 0
+        self.original_filesize_kb = 0
+        self.song_length_ms = 0
+        self.temp_preview_file = None
 
+        # --- Playback State ---
         self.is_playing = False
         self.is_paused = False
         self.playback_pos_ms = 0
-        self.song_length_ms = (
-                                          len(self.original_audio_data) / self.sample_rate) * 1000 if self.original_audio_data is not None else 0
+        self.playback_start_offset_ms = 0
+        self.settings_changed_since_play = False
 
-        self.active_slider = None
-        self.status_message = f"Editing EQ for: {os.path.basename(self.filepath)}"
-        self.temp_preview_file = None
+        # --- Playback Timer ---
+        self.playback_timer = QTimer(self)
+        self.playback_timer.setInterval(50)
+        self.playback_timer.timeout.connect(self.update_progress)
 
-        self.load_assets()
-        self.create_ui()
+        # --- UI Setup ---
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
 
-    def load_assets(self):
-        try:
-            self.bg_image = pygame.image.load(get_asset_path("background.png")).convert()
-            self.btn_play_img = pygame.image.load(get_asset_path("button_play.png")).convert_alpha()
-            self.btn_pause_img = pygame.image.load(get_asset_path("button_pause.png")).convert_alpha()
-            self.btn_save_img = pygame.image.load(get_asset_path("button_save.png")).convert_alpha()
-            self.btn_next_img = pygame.image.load(get_asset_path("button_next.png")).convert_alpha()
-            self.btn_back_img = pygame.image.load(get_asset_path("button_back.png")).convert_alpha()
-            self.slider_bar_img = pygame.image.load(get_asset_path("slider_bar.png")).convert_alpha()
-            self.slider_knob_img = pygame.image.load(get_asset_path("slider_knob.png")).convert_alpha()
-        except pygame.error as e:
-            print(f"FATAL ERROR: Could not load an asset. Error: {e}")
-            self.running = False
+        self.stacked_widget = QStackedWidget()
+        self.main_layout.addWidget(self.stacked_widget)
 
-    def create_ui(self):
-        # --- Common UI Elements ---
-        self.progress_bar_rect = pygame.Rect(50, SCREEN_HEIGHT - 100, SCREEN_WIDTH - 100, 20)
-        self.btn_play_pause_rect = self.btn_play_img.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 50))
+        self.create_welcome_screen()
 
-        # --- EQ Screen UI (Left Column) ---
+    def create_welcome_screen(self):
+        welcome_page = QWidget()
+        layout = QVBoxLayout(welcome_page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        title = QLabel("Welcome to WaveShaper")
+        title.setObjectName("TitleLabel")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        subtitle = QLabel("A modern audio editor for .wav files")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        load_button = QPushButton("Load .wav File")
+        load_button.setObjectName("AccentButton")
+        load_button.setFixedSize(200, 50)
+        load_button.clicked.connect(self.open_file_dialog)
+
+        layout.addStretch()
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addSpacing(30)
+        layout.addWidget(load_button, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+
+        self.stacked_widget.addWidget(welcome_page)
+
+    def open_file_dialog(self):
+        filepath, _ = QFileDialog.getOpenFileName(self, "Open WAV File", "", "WAV Files (*.wav)")
+        if filepath:
+            self.filepath = filepath
+            self.sample_rate, self.original_audio_data = audio_utils.load_audio(self.filepath)
+            if self.original_audio_data is not None:
+                self.original_filesize_kb = os.path.getsize(self.filepath) / 1024
+                self.song_length_ms = (len(self.original_audio_data) / self.sample_rate) * 1000
+                self.create_editor_ui()
+                self.stacked_widget.setCurrentIndex(1)
+
+    def create_editor_ui(self):
         self.eq_sliders = {}
+        self.compression_slider = {}
+
+        editor_page = QWidget()
+        main_layout = QHBoxLayout(editor_page)
+
+        self.controls_stack = QStackedWidget()
+        eq_controls_page = self.setup_eq_controls()
+        compression_controls_page = self.setup_compression_controls()
+        self.controls_stack.addWidget(eq_controls_page)
+        self.controls_stack.addWidget(compression_controls_page)
+
+        right_column = QVBoxLayout()
+        self.waveform_view = QGraphicsView()
+        self.waveform_scene = QGraphicsScene()
+        self.waveform_view.setScene(self.waveform_scene)
+        self.base_wave_item = QGraphicsPathItem()
+        self.eq_wave_item = QGraphicsPathItem()
+        self.waveform_scene.addItem(self.base_wave_item)
+        self.waveform_scene.addItem(self.eq_wave_item)
+
+        playback_controls = self.setup_playback_controls()
+
+        self.nav_stack = QStackedWidget()
+        eq_nav = self.setup_eq_nav()
+        comp_nav = self.setup_comp_nav()
+        self.nav_stack.addWidget(eq_nav)
+        self.nav_stack.addWidget(comp_nav)
+
+        right_column.addWidget(self.waveform_view)
+        right_column.addLayout(playback_controls)
+        right_column.addWidget(self.nav_stack)
+
+        main_layout.addWidget(self.controls_stack, 1)
+        main_layout.addLayout(right_column, 2)
+
+        self.stacked_widget.addWidget(editor_page)
+        self.update_waveform_preview()
+
+    def setup_eq_controls(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        title = QLabel("Step 1: Equalizer");
+        title.setObjectName("TitleLabel")
+        layout.addWidget(title)
+        layout.setSpacing(20)
         eq_slider_names = ['bass', 'mid', 'treble']
-        for i, name in enumerate(eq_slider_names):
-            y_pos = 200 + i * 100
-            bar_rect = self.slider_bar_img.get_rect(topleft=(50, y_pos))
-            knob_rect = self.slider_knob_img.get_rect(center=(bar_rect.centerx, bar_rect.centery))
-            self.eq_sliders[name] = {'name': name.capitalize(), 'bar_rect': bar_rect, 'knob_rect': knob_rect,
-                                     'ratio': 0.25}
+        for name in eq_slider_names:
+            self.eq_sliders[name] = {}
+            self.eq_sliders[name]['label'] = QLabel(f"{name.capitalize()}: 1.00x")
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(0, 100);
+            slider.setValue(25)
+            slider.valueChanged.connect(self.on_slider_change)  # Connect to the new handler
+            layout.addWidget(self.eq_sliders[name]['label'])
+            layout.addWidget(slider)
+            self.eq_sliders[name]['slider'] = slider
+        layout.addStretch()
+        return page
 
-        # --- Compression Screen UI (Left Column) ---
-        y_pos = 200
-        bar_rect = self.slider_bar_img.get_rect(topleft=(50, y_pos))
-        knob_rect = self.slider_knob_img.get_rect(center=(bar_rect.left, bar_rect.centery))
-        self.compression_slider = {'name': 'Compression', 'bar_rect': bar_rect, 'knob_rect': knob_rect, 'ratio': 0.0}
+    def setup_compression_controls(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        title = QLabel("Step 2: Compression");
+        title.setObjectName("TitleLabel")
+        layout.addWidget(title)
+        layout.setSpacing(20)
 
-        # --- Right-side column UI ---
-        self.visualizer_rect = pygame.Rect(RIGHT_COLUMN_X, 80, 380, 250)
-        self.btn_next_rect = self.btn_next_img.get_rect(topleft=(RIGHT_COLUMN_X, self.visualizer_rect.bottom + 50))
-        self.btn_back_rect = self.btn_back_img.get_rect(topleft=(RIGHT_COLUMN_X, self.visualizer_rect.bottom + 50))
-        self.btn_save_rect = self.btn_save_img.get_rect(topleft=(self.btn_back_rect.right + 20, self.btn_back_rect.top))
+        self.compression_slider['label'] = QLabel("Compression: 0%")
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, 100);
+        slider.setValue(0)
+        slider.valueChanged.connect(self.on_slider_change)  # Connect to the new handler
 
-    def run(self):
-        while self.running:
-            self.handle_events()
-            self.update()
-            self.draw()
-            self.clock.tick(FPS)
+        self.file_size_label_orig = QLabel(f"Original Size: {self.original_filesize_kb:.1f} KB")
+        self.file_size_label_est = QLabel("Estimated New Size: ...")
 
-        if self.temp_preview_file:
-            try:
-                os.remove(self.temp_preview_file)
-            except OSError as e:
-                print(f"Error removing temp file: {e}")
-        pygame.quit()
+        layout.addWidget(self.compression_slider['label'])
+        layout.addWidget(slider)
+        layout.addSpacing(30)
+        layout.addWidget(self.file_size_label_orig)
+        layout.addWidget(self.file_size_label_est)
+        self.compression_slider['slider'] = slider
+        layout.addStretch()
+        self.update_compression_labels()
+        return page
 
-    def handle_events(self):
-        current_sliders = self.eq_sliders if self.app_state == 'editor_eq' else {'compression': self.compression_slider}
+    def setup_playback_controls(self):
+        layout = QVBoxLayout()
+        time_layout = QHBoxLayout()
+        self.current_time_label = QLabel("00:00")
+        self.total_time_label = QLabel(time.strftime('%M:%S', time.gmtime(self.song_length_ms / 1000)))
+        time_layout.addWidget(self.current_time_label)
+        time_layout.addStretch()
+        time_layout.addWidget(self.total_time_label)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.running = False
+        self.progress_slider = QSlider(Qt.Orientation.Horizontal)
+        self.progress_slider.sliderMoved.connect(self.seek_playback)
 
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self.btn_play_pause_rect.collidepoint(event.pos):
-                    self.toggle_play_pause()
-                elif self.progress_bar_rect.collidepoint(event.pos):
-                    self.seek_playback(event.pos[0])
+        self.play_pause_button = QPushButton("Play")
+        self.play_pause_button.setFixedSize(100, 40)
+        self.play_pause_button.clicked.connect(self.toggle_play_pause)
 
-                if self.app_state == 'editor_eq':
-                    if self.btn_next_rect.collidepoint(event.pos):
-                        self.go_to_compression()
-                elif self.app_state == 'editor_compression':
-                    if self.btn_back_rect.collidepoint(event.pos):
-                        self.go_to_eq()
-                    elif self.btn_save_rect.collidepoint(event.pos):
-                        self.save_final_audio()
+        play_button_layout = QHBoxLayout()
+        play_button_layout.addStretch()
+        play_button_layout.addWidget(self.play_pause_button)
+        play_button_layout.addStretch()
 
-                for slider in current_sliders.values():
-                    if slider['knob_rect'].collidepoint(event.pos):
-                        self.active_slider = slider
-                        break
+        layout.addLayout(time_layout)
+        layout.addWidget(self.progress_slider)
+        layout.addLayout(play_button_layout)
+        return layout
 
-            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                self.active_slider = None
+    def setup_eq_nav(self):
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        next_button = QPushButton("Next →")
+        next_button.setObjectName("AccentButton")
+        next_button.clicked.connect(self.go_to_compression)
+        layout.addStretch()
+        layout.addWidget(next_button)
+        return page
 
-            if event.type == pygame.MOUSEMOTION and self.active_slider:
-                bar = self.active_slider['bar_rect']
-                self.active_slider['knob_rect'].centerx = max(bar.left, min(event.pos[0], bar.right))
-                self.active_slider['ratio'] = (self.active_slider['knob_rect'].centerx - bar.left) / bar.width
+    def setup_comp_nav(self):
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        back_button = QPushButton("← Back")
+        save_button = QPushButton("Save File")
+        save_button.setObjectName("AccentButton")
+        back_button.clicked.connect(self.go_to_eq)
+        save_button.clicked.connect(self.save_final_audio)
+        layout.addWidget(back_button)
+        layout.addStretch()
+        layout.addWidget(save_button)
+        return page
 
-                # --- THIS IS THE NEW FEATURE ---
-                # If the user is dragging a slider while music is playing, pause it.
-                if self.is_playing:
-                    pygame.mixer.music.pause()
-                    self.is_paused = True
-                    self.is_playing = False
-                    self.status_message = "Settings changed. Press Play to hear changes."
+    # --- THIS IS THE NEW FUNCTION ---
+    def on_slider_change(self):
+        """Called whenever any slider is moved."""
+        self.settings_changed_since_play = True
 
-    def update(self):
-        if self.is_playing and pygame.mixer.music.get_busy():
-            self.playback_pos_ms += self.clock.get_time()
-        elif self.is_playing and not pygame.mixer.music.get_busy():
-            self.stop_playback(song_finished=True)
+        # If the user changes a setting while music is playing, pause it.
+        if self.is_playing:
+            pygame.mixer.music.pause()
+            self.playback_timer.stop()
+            self.is_playing = False
+            self.is_paused = True
+            self.play_pause_button.setText("Play")
+
+        # Update the UI visuals as before
+        if self.controls_stack.currentIndex() == 0:
+            self.update_eq_labels_and_waveform()
+        else:
+            self.update_compression_labels()
+
+    def update_eq_labels_and_waveform(self):
+        for name, data in self.eq_sliders.items():
+            value = data['slider'].value()
+            data['label'].setText(f"{name.capitalize()}: {(value / 100.0) * 4.0:.2f}x")
+        self.update_waveform_preview()
+
+    def update_compression_labels(self):
+        value = self.compression_slider['slider'].value()
+        self.compression_slider['label'].setText(f"Compression: {value}%")
+        estimated_size = self.original_filesize_kb * (1 - (value / 100.0))
+        self.file_size_label_est.setText(f"Estimated New Size: {estimated_size:.1f} KB")
+
+    def update_waveform_preview(self):
+        if self.original_audio_data is None: return
+        chunk_size = 2048
+        start_index = len(self.original_audio_data) // 2
+        chunk = self.original_audio_data[start_index: start_index + chunk_size]
+        eq_settings = self.get_current_eq_settings()
+        eq_chunk = audio_utils.process_audio(chunk, self.sample_rate, eq_settings, 0)
+        self.draw_single_waveform(self.base_wave_item, chunk, QColor("#555555"))
+        self.draw_single_waveform(self.eq_wave_item, eq_chunk, QColor("#ff007f"))
+        self.waveform_view.fitInView(self.waveform_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def draw_single_waveform(self, path_item, audio_chunk, color):
+        path = QPainterPath()
+        if audio_chunk is None or len(audio_chunk) == 0: return
+        num_samples = len(audio_chunk)
+        max_amp = np.max(np.abs(audio_chunk)) if np.max(np.abs(audio_chunk)) > 0 else 1.0
+        path.moveTo(0, 0)
+        for i in range(num_samples):
+            x = (i / num_samples) * 400
+            y = -(audio_chunk[i] / max_amp) * 100
+            path.lineTo(x, y)
+        pen = QPen(color, 2)
+        path_item.setPath(path)
+        path_item.setPen(pen)
 
     def go_to_compression(self):
         self.stop_playback()
-        self.status_message = "Applying EQ... please wait."
-        self.draw()
-        pygame.display.flip()
         eq_settings = self.get_current_eq_settings()
         self.eq_audio_data = audio_utils.process_audio(self.original_audio_data, self.sample_rate, eq_settings, 0)
-        self.app_state = 'editor_compression'
-        self.status_message = "Adjust compression level."
+        self.controls_stack.setCurrentIndex(1)
+        self.nav_stack.setCurrentIndex(1)
 
     def go_to_eq(self):
         self.stop_playback()
-        self.app_state = 'editor_eq'
-        self.status_message = f"Editing EQ for: {os.path.basename(self.filepath)}"
+        self.controls_stack.setCurrentIndex(0)
+        self.nav_stack.setCurrentIndex(0)
+
+    def get_current_eq_settings(self):
+        return {
+            'bass': (self.eq_sliders['bass']['slider'].value() / 100.0) * 4.0,
+            'mid': (self.eq_sliders['mid']['slider'].value() / 100.0) * 4.0,
+            'treble': (self.eq_sliders['treble']['slider'].value() / 100.0) * 4.0,
+        }
+
+    # --- Playback Logic ---
 
     def toggle_play_pause(self):
-        # --- THIS LOGIC IS NOW FIXED ---
-        # If paused, it means settings have changed. We need to re-process and play.
-        if self.is_paused:
-            self.start_playback(start_ms=self.playback_pos_ms)
-        # If it's not playing at all, start from the beginning (or wherever the slider is).
-        elif not self.is_playing:
-            self.start_playback(start_ms=self.playback_pos_ms)
-        # If it is currently playing, just pause it.
-        else:
+        if self.is_playing:
             pygame.mixer.music.pause()
-            self.is_paused = True
+            self.playback_timer.stop()
             self.is_playing = False
-            self.status_message = "Paused."
+            self.is_paused = True
+            self.play_pause_button.setText("Play")
+        else:
+            if self.is_paused and not self.settings_changed_since_play:
+                pygame.mixer.music.unpause()
+            else:
+                self.start_playback(start_ms=self.playback_pos_ms)
+
+            self.is_playing = True
+            self.is_paused = False
+            self.playback_timer.start()
+            self.play_pause_button.setText("Pause")
 
     def start_playback(self, start_ms=0):
-        self.status_message = "Processing for preview..."
-        self.draw()
-        pygame.display.flip()
-
-        data_to_process = self.eq_audio_data if self.app_state == 'editor_compression' else self.original_audio_data
-        eq_settings = self.get_current_eq_settings() if self.app_state == 'editor_eq' else None
-        compression_ratio = self.compression_slider['ratio'] if self.app_state == 'editor_compression' else 0
+        if self.controls_stack.currentIndex() == 0:
+            data_to_process = self.original_audio_data
+            eq_settings = self.get_current_eq_settings()
+            compression_ratio = 0
+        else:
+            data_to_process = self.eq_audio_data
+            eq_settings = None
+            compression_ratio = self.compression_slider['slider'].value() / 100.0
 
         processed_data = audio_utils.process_audio(data_to_process, self.sample_rate, eq_settings, compression_ratio)
 
@@ -211,142 +413,55 @@ class AudioApp:
 
             pygame.mixer.music.load(self.temp_preview_file)
             pygame.mixer.music.play(start=(start_ms / 1000.0))
+
+            self.playback_start_offset_ms = start_ms
+            self.playback_timer.start()
+            self.play_pause_button.setText("Pause")
             self.is_playing = True
             self.is_paused = False
-            self.playback_pos_ms = start_ms
-            self.status_message = "Previewing..."
-        else:
-            self.status_message = "Error: Preview failed."
+            self.settings_changed_since_play = False
+
+    def update_progress(self):
+        if self.is_playing:
+            elapsed_time = pygame.mixer.music.get_pos()
+            self.playback_pos_ms = self.playback_start_offset_ms + elapsed_time
+            if self.playback_pos_ms >= self.song_length_ms:
+                self.stop_playback(song_finished=True)
+                return
+            self.current_time_label.setText(time.strftime('%M:%S', time.gmtime(self.playback_pos_ms / 1000)))
+            self.progress_slider.blockSignals(True)
+            self.progress_slider.setValue(int((self.playback_pos_ms / self.song_length_ms) * 100))
+            self.progress_slider.blockSignals(False)
 
     def stop_playback(self, song_finished=False):
         pygame.mixer.music.stop()
+        self.playback_timer.stop()
         self.is_playing = False
         self.is_paused = False
+        self.play_pause_button.setText("Play")
         if song_finished:
             self.playback_pos_ms = 0
-            self.status_message = "Preview finished."
-        else:
-            self.status_message = "Preview stopped."
+            self.update_progress()
 
-    def seek_playback(self, mouse_x):
-        seek_ratio = (mouse_x - self.progress_bar_rect.left) / self.progress_bar_rect.width
-        seek_ms = self.song_length_ms * seek_ratio
-        self.stop_playback()
-        self.start_playback(start_ms=seek_ms)
+    def seek_playback(self, value):
+        seek_ms = self.song_length_ms * (value / 100.0)
+        self.playback_pos_ms = seek_ms
+        self.start_playback(start_ms=self.playback_pos_ms)
 
     def save_final_audio(self):
         self.stop_playback()
-        self.status_message = "Processing final audio..."
-        self.draw()
-        pygame.display.flip()
-
-        compression_ratio = self.compression_slider['ratio']
+        compression_ratio = self.compression_slider['slider'].value() / 100.0
         final_data = audio_utils.process_audio(self.eq_audio_data, self.sample_rate, None, compression_ratio)
-
         if final_data is not None:
-            directory = os.path.dirname(self.filepath)
-            filename, ext = os.path.splitext(os.path.basename(self.filepath))
-            save_path = os.path.join(directory, f"{filename}_final{ext}")
-            try:
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save Processed File", os.path.basename(self.filepath),
+                                                       "WAV Files (*.wav)")
+            if save_path:
                 wavfile.write(save_path, self.sample_rate, final_data)
-                self.status_message = f"Saved to {os.path.basename(save_path)}"
-            except Exception as e:
-                self.status_message = f"Error saving file: {e}"
-        else:
-            self.status_message = "Error: Final processing failed."
 
-    def draw(self):
-        self.screen.blit(self.bg_image, (0, 0))
-
-        if self.app_state == 'editor_eq':
-            self.draw_eq_screen()
-        elif self.app_state == 'editor_compression':
-            self.draw_compression_screen()
-
-        self.draw_progress_bar()
-        play_pause_btn = self.btn_pause_img if self.is_playing or self.is_paused else self.btn_play_img
-        self.screen.blit(play_pause_btn, self.btn_play_pause_rect)
-        status_surf = self.small_font.render(self.status_message, True, COLOR_TEXT, COLOR_BG_TEXT)
-        self.screen.blit(status_surf, (20, SCREEN_HEIGHT - 30))
-
-        pygame.display.flip()
-
-    def draw_eq_screen(self):
-        title = self.title_font.render("Step 1: Equalizer", True, COLOR_TEXT)
-        self.screen.blit(title, (50, 20))
-        self.draw_sliders(self.eq_sliders)
-        self.screen.blit(self.btn_next_img, self.btn_next_rect)
-        self.draw_waveform_visualizer()
-
-    def draw_compression_screen(self):
-        title = self.title_font.render("Step 2: Compression", True, COLOR_TEXT)
-        self.screen.blit(title, (50, 20))
-        self.draw_sliders({'compression': self.compression_slider})
-        self.screen.blit(self.btn_back_img, self.btn_back_rect)
-        self.screen.blit(self.btn_save_img, self.btn_save_rect)
-        self.draw_file_size_info()
-
-    def draw_sliders(self, sliders_to_draw):
-        for slider in sliders_to_draw.values():
-            self.screen.blit(self.slider_bar_img, slider['bar_rect'])
-            self.screen.blit(self.slider_knob_img, slider['knob_rect'])
-            label_text = self.font.render(slider['name'], True, COLOR_TEXT)
-            self.screen.blit(label_text, (slider['bar_rect'].left, slider['bar_rect'].top - 35))
-
-            ratio = slider['ratio']
-            if slider['name'] != 'Compression':
-                value_str = f"{ratio * 4.0:.2f}x"
-            else:
-                value_str = f"{ratio * 100:.0f}%"
-            value_text = self.small_font.render(value_str, True, COLOR_TEXT)
-            self.screen.blit(value_text, (slider['bar_rect'].right + 20, slider['bar_rect'].centery - 10))
-
-    def draw_progress_bar(self):
-        pygame.draw.rect(self.screen, COLOR_PROGRESS_BG, self.progress_bar_rect)
-        if self.song_length_ms > 0:
-            progress_ratio = self.playback_pos_ms / self.song_length_ms
-            progress_width = self.progress_bar_rect.width * progress_ratio
-            progress_rect = pygame.Rect(self.progress_bar_rect.left, self.progress_bar_rect.top, progress_width,
-                                        self.progress_bar_rect.height)
-            pygame.draw.rect(self.screen, COLOR_PROGRESS_FG, progress_rect)
-
-    def draw_waveform_visualizer(self):
-        chunk_size = 2048
-        if len(self.original_audio_data) < chunk_size: return
-        start_index = len(self.original_audio_data) // 2
-        chunk = self.original_audio_data[start_index: start_index + chunk_size]
-
-        eq_settings = self.get_current_eq_settings()
-        eq_chunk = audio_utils.process_audio(chunk, self.sample_rate, eq_settings, 0)
-        if eq_chunk is None: return
-
-        self.draw_single_waveform(self.visualizer_rect, chunk, COLOR_WAVEFORM_BASE)
-        self.draw_single_waveform(self.visualizer_rect, eq_chunk, COLOR_WAVEFORM_EQ)
-
-    def draw_single_waveform(self, rect, audio_chunk, color):
-        points = []
-        num_samples = len(audio_chunk)
-        max_amp = np.max(np.abs(audio_chunk)) if np.max(np.abs(audio_chunk)) > 0 else 1
-
-        for i in range(num_samples):
-            x = rect.left + (i / num_samples) * rect.width
-            y = rect.centery - (audio_chunk[i] / max_amp) * (rect.height / 2)
-            points.append((x, y))
-
-        if len(points) > 1:
-            pygame.draw.aalines(self.screen, color, False, points)
-
-    def draw_file_size_info(self):
-        compression_ratio = self.compression_slider['ratio']
-        estimated_new_size = self.original_filesize_kb * (1 - compression_ratio)
-        orig_text = self.font.render(f"Original Size: {self.original_filesize_kb:.2f} KB", True, COLOR_TEXT)
-        est_text = self.font.render(f"Estimated New Size: {estimated_new_size:.2f} KB", True, COLOR_TEXT)
-        self.screen.blit(orig_text, (RIGHT_COLUMN_X, 200))
-        self.screen.blit(est_text, (RIGHT_COLUMN_X, 240))
-
-    def get_current_eq_settings(self):
-        return {
-            'bass': self.eq_sliders['bass']['ratio'] * 4.0,
-            'mid': self.eq_sliders['mid']['ratio'] * 4.0,
-            'treble': self.eq_sliders['treble']['ratio'] * 4.0,
-        }
+    def closeEvent(self, event):
+        if self.temp_preview_file:
+            try:
+                os.remove(self.temp_preview_file)
+            except OSError as e:
+                print(f"Error removing temp file: {e}")
+        super().closeEvent(event)
