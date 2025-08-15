@@ -205,7 +205,7 @@ class AudioApp(QMainWindow):
     def setup_eq_controls(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = QLabel("Step 1: Equalizer");
+        title = QLabel("Equalizer");
         title.setObjectName("TitleLabel")
         layout.addWidget(title)
         layout.setSpacing(20)
@@ -226,7 +226,7 @@ class AudioApp(QMainWindow):
     def setup_compression_controls(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = QLabel("Step 2: Compression");
+        title = QLabel("Compression");
         title.setObjectName("TitleLabel")
         layout.addWidget(title)
         layout.setSpacing(20)
