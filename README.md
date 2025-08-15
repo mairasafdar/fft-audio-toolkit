@@ -6,9 +6,11 @@ A sophisticated audio editing application built with Python and PyQt6 for **macO
 
 ### **Demo**
 
-A screen recording of the application in action. The demo showcases the fluid two-column UI, the live waveform visualizer reacting to slider adjustments, and the seamless audio playback controls.
+A screen recording of the application in action. The demo showcases the fluid two-column UI, the live waveform visualizer reacting to slider adjustments, the seamless audio playback controls, and compression.
 
-\[A GIF or short video\]
+
+https://github.com/user-attachments/assets/83af505d-df5a-4b94-bf77-0ea33210e92a
+
 
 ## **About The Project**
 
@@ -68,7 +70,7 @@ The application can be run directly from the main.py script. The file dialog is 
 
 python3 main.py
 
-This will first launch the application window. Clicking the "Load .wav File" button will open a native file dialog, and upon selecting a file, you will be taken to the main editor interface.
+This will first launch the application window. Clicking the "Load .wav File" button will open a native file dialog, and upon selecting a .wav file, you will be taken to the main editor interface.
 
 ## **Future Improvements**
 
