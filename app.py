@@ -16,7 +16,7 @@ from PyQt6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QRect, QSize, QT
 import pygame
 import audio_utils
 
-# --- New Professional Stylesheet ---
+# --- Stylesheet ---
 MODERN_STYLESHEET = """
     /* Main Window Styling */
     QMainWindow, QWidget {
@@ -90,7 +90,7 @@ class AudioApp(QMainWindow):
         pygame.init()
         pygame.mixer.init()
 
-        self.setWindowTitle("WaveShaper")
+        self.setWindowTitle("Audio Toolkit")
         self.setGeometry(100, 100, 1024, 700)
         self.setStyleSheet(MODERN_STYLESHEET)
 
@@ -130,11 +130,11 @@ class AudioApp(QMainWindow):
         layout = QVBoxLayout(welcome_page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel("Welcome to WaveShaper")
+        title = QLabel("FFT Audio Toolkit")
         title.setObjectName("TitleLabel")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("A modern audio editor for .wav files")
+        subtitle = QLabel("A modern audio editor for .wav files using Fast Fourier Transform")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         load_button = QPushButton("Load .wav File")
