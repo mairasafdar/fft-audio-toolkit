@@ -25,15 +25,6 @@ The core of the application is its use of the **Fast Fourier Transform (FFT)** t
 * **Lossy Compression:** Reduce file size by intelligently removing the quietest, least perceptible frequency components.  
 * **File Size Estimation:** See an estimate of the final file size in real-time as you adjust the compression level.
 
-### **Screenshots**
-
-A screenshot of the main Equalizer screen, showing the live waveform visualizer with the original (grey) and EQ'd (pink) waveforms.
-
-\[Screenshot of the EQ Screen\]
-
-A screenshot of the Compression screen, displaying the file size information and final controls.
-
-\[Screenshot of the Compression Screen\]
 
 ### **Built With**
 
